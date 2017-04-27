@@ -1,0 +1,231 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+# Practical Machine Learning Course Project:  Predictions with Biometric Datasets
+
+
+#### Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement, a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict a representative "classe" variable indicative of performance.
+
+
+### Obtaining, partitioning, and subsetting the dataset to reflect patterns that are likely predictive 
+
+```{r}
+
+
+install.packages("caret", repos="http://cran.rstudio.org")
+install.packages("e1071", repos="http://cran.rstudio.org")
+install.packages("rpart", repos="http://cran.rstudio.org")
+install.packages("randomForest", repos="http://cran.rstudio.org")
+install.packages("knitr", repos="http://cran.rstudio.org")
+
+
+library(caret)
+library(e1071)
+library(rpart)
+library(randomForest)
+library(knitr)
+
+
+
+#Get the train and test data
+
+mlTest <-"C:/Users/ghb206/Documents/DataSciTrack_JHU/mlTest.csv"
+mlTestURL <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+mlTrain <-"C:/Users/ghb206/Documents/DataSciTrack_JHU/mlTrain.csv"
+mlTrainURL <-
+"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+
+
+Test<-download.file(mlTestURL, mlTest, mode = "wb")
+mlTestData<-read.csv("C:/Users/ghb206/Documents/DataSciTrack_JHU/mlTest.csv", header = TRUE)
+
+Train<-download.file(mlTrainURL, mlTrain, mode = "wb")
+mlTrainData<-read.csv("C:/Users/ghb206/Documents/DataSciTrack_JHU/mlTrain.csv", header = TRUE)
+
+#Partion the data per the popular 70/30 split in favor of training data
+
+holder <- createDataPartition(mlTrainData$classe, p=0.7, list=FALSE)
+sevSplTrainData <- mlTrainData[holder, ]
+thirSplTestData <- mlTrainData[-holder, ]
+
+#confirm with dim() that all matches
+dim(mlTrainData)
+dim(sevSplTrainData)
+dim(thirSplTestData)
+
+
+#Now examine the completeness of the data
+
+naTrain <-sapply(sevSplTrainData, function(x) sum(length(which(is.na(x)))))
+
+#naTrain <- data.frame(naTrain)
+#Note, this is supressed for brevity, but there are many NA's
+
+naTest <-sapply(thirSplTestData, function(x) sum(length(which(is.na(x)))))
+
+#naTest <- data.frame(naTest)
+#As above, so the problematic columns will be removed
+
+#Two datasets will be made...one dataset will include all of the
+#columns that lack NA values and factorized categories and the 
+#other will include only the
+#summaries (totals per category)...both will be tested with various
+#ML algorithms but only summaries of the better will be provided
+#the goal is to see how a vastly stripped dataset performs relative
+#to a large, near complete presentation
+
+#Again, the first will include all of the non NA containing columns
+#and further filter by items being read as factors
+
+scaleSevSplTrainData<-sevSplTrainData[ , colSums(is.na(sevSplTrainData)) == 0]
+scaleThirSplTestData<-thirSplTestData[ , colSums(is.na(thirSplTestData)) == 0]
+
+
+numScaleSevSplTrainData <- sapply(scaleSevSplTrainData, is.numeric)
+numScaleThirSplTestData <- sapply(scaleThirSplTestData, is.numeric)
+
+newNumScaleSevSplTrainData<-scaleSevSplTrainData[,numScaleThirSplTestData]
+newNumScaleThirSplTestData<-scaleThirSplTestData[,numScaleThirSplTestData]
+
+#Re-shaping the more complete dataset
+
+finalScaleSplTrainData<-cbind(sevSplTrainData$user_name,sevSplTrainData$classe,
+newNumScaleSevSplTrainData)
+
+finalScaleSplTestData<-cbind(thirSplTestData$user_name,thirSplTestData$classe, newNumScaleThirSplTestData)
+
+colnames(finalScaleSplTrainData)[1] <- "user_name"
+colnames(finalScaleSplTrainData)[2] <- "classe"
+
+colnames(finalScaleSplTestData)[1] <- "user_name"
+colnames(finalScaleSplTestData)[2] <- "classe"
+
+finalScaleSplTrainData$X <-NULL
+finalScaleSplTestData$X <-NULL
+
+#The second will be just the "total" categories
+
+
+scaleTwoSevSplTrainData<-sevSplTrainData[ , grep("total", colnames(sevSplTrainData))]
+
+scaleTwoThirSplTestData<-thirSplTestData[ , grep("total", colnames(thirSplTestData))]
+
+#More supressed output...the var column is all NA per the below so dropped
+#sum(is.na(scaleTwoSevSplTrainData$var_total_accel_belt))
+#sum(is.na(scaleTwoThirSplTestData$var_total_accel_belt))
+#NOTE:  "scaledTwo" reflects the same column sum as "scaled"
+
+scaleTwoSevSplTrainData$var_total_accel_belt<-NULL
+scaleTwoThirSplTestData$var_total_accel_belt<-NULL
+
+#Re-shape smaller "total" dataset after the grep command
+
+scaleTwoSevSplTrainData<-cbind(sevSplTrainData$user_name,sevSplTrainData$classe,
+scaleTwoSevSplTrainData)
+
+
+scaleTwoThirSplTestData<-cbind(thirSplTestData$user_name,thirSplTestData$classe, scaleTwoThirSplTestData)
+
+colnames(scaleTwoSevSplTrainData)[1] <- "user_name"
+colnames(scaleTwoSevSplTrainData)[2] <- "classe"
+
+colnames(scaleTwoThirSplTestData)[1] <- "user_name"
+colnames(scaleTwoThirSplTestData)[2] <- "classe"
+
+
+#The two data partitions are formatted and ready for ML algorithm
+
+
+```
+
+
+
+### Performing the ML analysis (Random Forest)
+
+```{r}
+
+#Test the minimal set first with "random forest"
+
+
+set.seed(3730977)
+randForestModel1 <- randomForest(classe ~ ., data=scaleTwoSevSplTrainData)
+randForestPrediction1 <- predict(randForestModel1, scaleTwoThirSplTestData, type = "class")
+randForestConfMatrix1 <- confusionMatrix(randForestPrediction1, scaleTwoThirSplTestData$classe)
+
+#randForestConfMatrix1 output not shown as the model was only  
+#minimally accurate
+
+
+#Now test the assumed "more robust" set with "random forest"
+
+
+randForestModel2 <- randomForest(classe ~ ., data=finalScaleSplTrainData)
+randForestPrediction2 <- predict(randForestModel2, finalScaleSplTestData, type = "class")
+randForestConfMatrix <- confusionMatrix(randForestPrediction2, finalScaleSplTestData$classe)
+
+randForestConfMatrix
+
+
+```
++ The second random forest based model (built with far more data) performed much better in terms of accuracy.  For added assurance, the Kappa, which is a measure of observed relative to expected accuracy is 1.0.
+
+
+
+
+### Performing the second ML analysis (Decison Tree)
+
+```{r}
+
+
+set.seed(37485)
+dTreeModel1 <- rpart(classe ~ ., data=scaleTwoSevSplTrainData, method="class")
+dTreePfrediction1 <- predict(dTreeModel1, scaleTwoThirSplTestData, type = "class")
+dTreeConfMatrix1 <- confusionMatrix(dTreePfrediction1, scaleTwoThirSplTestData$classe)
+#dTreeConfMatrix1 / supressed due to low accuracy
+
+
+dTreeModel2 <- rpart(classe ~ ., data=finalScaleSplTrainData, method="class")
+dTreePfrediction2 <- predict(dTreeModel2, finalScaleSplTestData, type = "class")
+dTreeConfMatrix2 <- confusionMatrix(dTreePfrediction2, finalScaleSplTestData$classe)
+dTreeConfMatrix2
+
+
+```
+
++ Once again, the expanded model had a resasonably high level of accuracy, and a strong Kappa statistic.  Since the random forest model performed better, however, it was chosen for the predictive exercise.  Of course, it should be pointed out that these results are seed specific and driven by the underlying dataset.  In addition, the 70/30 partition could play a role as well.
+
+
+
+### Now get the predictions on the small test set (not derived from the original training partition)
+
+```{r}
+
+#in order to predict, the file needs to resemble the format in out best model
+
+scale1MLTestData<-mlTestData[ , colSums(is.na(mlTestData)) == 0]
+
+scale2MLTestData <- sapply(scale1MLTestData, is.numeric)
+
+scale3MLTestData<-scale1MLTestData[,scale2MLTestData]
+
+#newNumScaleSevSplTrainData<-scaleSevSplTrainData[,numScaleThirSplTestData]
+
+scale4MLTestData<-cbind(mlTestData$user_name,
+scale3MLTestData)
+
+colnames(scale4MLTestData)[1] <- "user_name"
+
+scale4MLTestData$X <- NULL
+
+
+randForestModelPredict <- predict(randForestModel2, scale4MLTestData, type = "class")
+randForestModelPredict
+
+#These results were able to correctly predict the "classe" category for 
+#each tested instance
+
+
+```
